@@ -1,0 +1,25 @@
+nest main {
+    print("--- Array Test ---")
+    let arr = [10, 20, 30]
+    print(arr)
+    print(arr[0])
+    print(arr[1])
+    print(arr[2])
+
+    print("--- Map Test ---")
+    let dict = {"name": "nest", "type": "lang"}
+    print(dict)
+    print(dict["name"])
+    print(dict["type"])
+
+    print("--- Nested Test ---")
+    let nested = [{"id": 1}, {"id": 2}]
+    print(nested)
+    print(nested[0])
+    print(nested[0]["id"])
+
+    let complex = {"data": [1, 2, 3]}
+    print(complex)
+    print(complex["data"])
+    print(complex["data"][1])
+}
