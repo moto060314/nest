@@ -1,0 +1,6 @@
+nest main {
+    let message = "Hello World!"
+    nest string {
+        print(message)
+    }
+}
