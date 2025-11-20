@@ -101,3 +101,21 @@ for (i in 1..5) {
     print(i)
 }
 ```
+
+### 配列 (Arrays)
+
+`[]` を使用して配列を作成し、インデックスでアクセスします。
+
+```nest
+let arr = [1, 2, 3]
+print(arr[0]) // 1
+```
+
+### 辞書 (Dictionaries)
+
+`{}` を使用してキーと値のペアを作成し、キーでアクセスします。
+
+```nest
+let dict = {"key": "value"}
+print(dict["key"]) // value
+```

@@ -13,12 +13,13 @@
 
 enum TokenType {
     TOKEN_EOF,
-    KEYWORD_NEST, KEYWORD_LET, KEYWORD_IF, KEYWORD_ELSE, 
+    KEYWORD_NEST, KEYWORD_LET, KEYWORD_IF, KEYWORD_ELSE,
     KEYWORD_WHILE, KEYWORD_FOR, KEYWORD_IN, KEYWORD_PRINT,
     IDENTIFIER, NUMBER, STRING_LITERAL,
     PLUS, MINUS, STAR, SLASH, PERCENT,
     LT, LTE, GT, GTE, EQ, NEQ,
-    ASSIGN, LBRACE, RBRACE, LPAREN, RPAREN, DOTDOT
+    ASSIGN, LBRACE, RBRACE, LPAREN, RPAREN, DOTDOT,
+    LBRACKET, RBRACKET, COLON, COMMA
 };
 
 struct Token {
@@ -60,7 +61,11 @@ public:
                     case ')': tokens.push_back({RPAREN, ")", line}); pos++; break;
                     case '{': tokens.push_back({LBRACE, "{", line}); pos++; break;
                     case '}': tokens.push_back({RBRACE, "}", line}); pos++; break;
-                    case '=': 
+                    case '[': tokens.push_back({LBRACKET, "[", line}); pos++; break;
+                    case ']': tokens.push_back({RBRACKET, "]", line}); pos++; break;
+                    case ':': tokens.push_back({COLON, ":", line}); pos++; break;
+                    case ',': tokens.push_back({COMMA, ",", line}); pos++; break;
+                    case '=':
                         if (peek() == '=') { tokens.push_back({EQ, "==", line}); pos+=2; }
                         else { tokens.push_back({ASSIGN, "=", line}); pos++; }
                         break;
@@ -126,25 +131,50 @@ private:
 
 // --- 2. AST & Runtime Values (C++11 Compatible) ---
 
-enum ValueType { VAL_INT, VAL_STR, VAL_BOOL };
+enum ValueType { VAL_INT, VAL_STR, VAL_BOOL, VAL_ARRAY, VAL_DICT };
 
 struct Value {
     ValueType type;
     int iVal;
     std::string sVal;
     bool bVal;
+    std::vector<Value> arrayVal;
+    std::map<std::string, Value> dictVal;
 
     Value() : type(VAL_INT), iVal(0), bVal(false) {}
     Value(int v) : type(VAL_INT), iVal(v), bVal(false) {}
     Value(std::string v) : type(VAL_STR), iVal(0), sVal(v), bVal(false) {}
     Value(bool v) : type(VAL_BOOL), iVal(0), bVal(v) {}
+    Value(std::vector<Value> v) : type(VAL_ARRAY), iVal(0), bVal(false), arrayVal(v) {}
+    Value(std::map<std::string, Value> v) : type(VAL_DICT), iVal(0), bVal(false), dictVal(v) {}
     // C strings
     Value(const char* v) : type(VAL_STR), iVal(0), sVal(v), bVal(false) {}
 
     std::string toString() const {
         if (type == VAL_INT) return std::to_string(iVal);
         if (type == VAL_STR) return sVal;
-        return bVal ? "true" : "false";
+        if (type == VAL_BOOL) return bVal ? "true" : "false";
+        if (type == VAL_ARRAY) {
+            std::string res = "[";
+            for (size_t i = 0; i < arrayVal.size(); ++i) {
+                if (i > 0) res += ", ";
+                res += arrayVal[i].toString();
+            }
+            res += "]";
+            return res;
+        }
+        if (type == VAL_DICT) {
+            std::string res = "{";
+            bool first = true;
+            for (const auto& kv : dictVal) {
+                if (!first) res += ", ";
+                res += "\"" + kv.first + "\": " + kv.second.toString();
+                first = false;
+            }
+            res += "}";
+            return res;
+        }
+        return "";
     }
 
     // Operator overloading
@@ -154,7 +184,7 @@ struct Value {
         }
         return Value(iVal + other.iVal);
     }
-    
+
     Value operator-(const Value& o) const { return Value(iVal - o.iVal); }
     Value operator*(const Value& o) const { return Value(iVal * o.iVal); }
     Value operator/(const Value& o) const { return Value(iVal / o.iVal); }
@@ -164,12 +194,14 @@ struct Value {
     bool operator<=(const Value& o) const { return iVal <= o.iVal; }
     bool operator>(const Value& o) const { return iVal > o.iVal; }
     bool operator>=(const Value& o) const { return iVal >= o.iVal; }
-    
-    bool operator==(const Value& o) const { 
+
+    bool operator==(const Value& o) const {
         if (type != o.type) return false;
         if (type == VAL_INT) return iVal == o.iVal;
         if (type == VAL_STR) return sVal == o.sVal;
         if (type == VAL_BOOL) return bVal == o.bVal;
+        if (type == VAL_ARRAY) return arrayVal == o.arrayVal;
+        if (type == VAL_DICT) return dictVal == o.dictVal;
         return false;
     }
     bool operator!=(const Value& o) const { return !(*this == o); }
@@ -239,7 +271,7 @@ struct BinaryExpr : Expr {
     std::shared_ptr<Expr> left, right;
     TokenType op;
     BinaryExpr(std::shared_ptr<Expr> l, TokenType o, std::shared_ptr<Expr> r) : left(l), op(o), right(r) {}
-    
+
     Value evaluate(Environment& env) override {
         Value l = left->evaluate(env);
         Value r = right->evaluate(env);
@@ -260,6 +292,53 @@ struct BinaryExpr : Expr {
     }
 };
 
+struct ArrayExpr : Expr {
+    std::vector<std::shared_ptr<Expr>> elements;
+    ArrayExpr(std::vector<std::shared_ptr<Expr>> e) : elements(e) {}
+    Value evaluate(Environment& env) override {
+        std::vector<Value> values;
+        for (auto& expr : elements) {
+            values.push_back(expr->evaluate(env));
+        }
+        return Value(values);
+    }
+};
+
+struct DictExpr : Expr {
+    std::map<std::string, std::shared_ptr<Expr>> pairs;
+    DictExpr(std::map<std::string, std::shared_ptr<Expr>> p) : pairs(p) {}
+    Value evaluate(Environment& env) override {
+        std::map<std::string, Value> values;
+        for (auto& kv : pairs) {
+            values[kv.first] = kv.second->evaluate(env);
+        }
+        return Value(values);
+    }
+};
+
+struct IndexExpr : Expr {
+    std::shared_ptr<Expr> object;
+    std::shared_ptr<Expr> index;
+    IndexExpr(std::shared_ptr<Expr> o, std::shared_ptr<Expr> i) : object(o), index(i) {}
+
+    Value evaluate(Environment& env) override {
+        Value obj = object->evaluate(env);
+        Value idx = index->evaluate(env);
+
+        if (obj.type == VAL_ARRAY) {
+            if (idx.type != VAL_INT) throw std::runtime_error("Array index must be an integer.");
+            if (idx.iVal < 0 || idx.iVal >= obj.arrayVal.size()) throw std::runtime_error("Array index out of bounds.");
+            return obj.arrayVal[idx.iVal];
+        }
+        if (obj.type == VAL_DICT) {
+            if (idx.type != VAL_STR) throw std::runtime_error("Dict key must be a string.");
+            if (obj.dictVal.count(idx.sVal)) return obj.dictVal[idx.sVal];
+            throw std::runtime_error("Key not found: " + idx.sVal);
+        }
+        throw std::runtime_error("Cannot index non-array/dict value.");
+    }
+};
+
 // Statement Implementations
 struct BlockStmt : Stmt {
     std::vector<std::shared_ptr<Stmt>> statements;
@@ -272,7 +351,7 @@ struct NestStmt : Stmt {
     std::string name;
     std::shared_ptr<BlockStmt> body;
     NestStmt(std::string n, std::shared_ptr<BlockStmt> b) : name(n), body(b) {}
-    
+
     void execute(Environment& env) override {
         Environment newEnv(&env);
         body->execute(newEnv);
@@ -309,9 +388,9 @@ struct IfStmt : Stmt {
     std::shared_ptr<Expr> condition;
     std::shared_ptr<Stmt> thenBranch;
     std::shared_ptr<Stmt> elseBranch;
-    IfStmt(std::shared_ptr<Expr> c, std::shared_ptr<Stmt> t, std::shared_ptr<Stmt> e) 
+    IfStmt(std::shared_ptr<Expr> c, std::shared_ptr<Stmt> t, std::shared_ptr<Stmt> e)
         : condition(c), thenBranch(t), elseBranch(e) {}
-    
+
     void execute(Environment& env) override {
         if (condition->evaluate(env).isTruthy()) {
             thenBranch->execute(env);
@@ -338,7 +417,7 @@ struct ForStmt : Stmt {
     std::string varName;
     int start, end;
     std::shared_ptr<Stmt> body;
-    ForStmt(std::string v, int s, int e, std::shared_ptr<Stmt> b) 
+    ForStmt(std::string v, int s, int e, std::shared_ptr<Stmt> b)
         : varName(v), start(s), end(e), body(b) {}
 
     void execute(Environment& env) override {
@@ -364,7 +443,7 @@ public:
         consume(IDENTIFIER, "Expect program name after 'nest'.");
         std::string name = previous().text;
         if (name != "main") throw std::runtime_error("Entry point must be 'nest main'");
-        
+
         consume(LBRACE, "Expect '{' before nest body.");
         auto body = parseBlock();
         return std::make_shared<NestStmt>(name, body);
@@ -387,12 +466,12 @@ private:
         if (match(KEYWORD_IF)) return parseIf();
         if (match(KEYWORD_WHILE)) return parseWhile();
         if (match(KEYWORD_FOR)) return parseFor();
-        
+
         if (check(IDENTIFIER)) {
             Token nextTok = tokens[current + 1];
             if (nextTok.type == ASSIGN) return parseAssign();
         }
-        
+
         throw std::runtime_error("Expect statement at line " + std::to_string(peek().line));
     }
 
@@ -454,13 +533,13 @@ private:
         consume(IDENTIFIER, "Expect variable name in for.");
         std::string var = previous().text;
         consume(KEYWORD_IN, "Expect 'in' after variable.");
-        
+
         consume(NUMBER, "Expect start number.");
         int start = std::stoi(previous().text);
         consume(DOTDOT, "Expect '..' range operator.");
         consume(NUMBER, "Expect end number.");
         int end = std::stoi(previous().text);
-        
+
         consume(RPAREN, "Expect ')' after for clause.");
         consume(LBRACE, "Expect '{' before for body.");
         auto body = parseBlock();
@@ -500,11 +579,25 @@ private:
     }
 
     std::shared_ptr<Expr> parseFactor() {
-        auto expr = parsePrimary();
+        auto expr = parsePostfix();
         while (match(STAR, SLASH, PERCENT)) {
             TokenType op = previous().type;
-            auto right = parsePrimary();
+            auto right = parsePostfix();
             expr = std::make_shared<BinaryExpr>(expr, op, right);
+        }
+        return expr;
+    }
+
+    std::shared_ptr<Expr> parsePostfix() {
+        auto expr = parsePrimary();
+        while (true) {
+            if (match(LBRACKET)) {
+                auto index = parseExpression();
+                consume(RBRACKET, "Expect ']' after index.");
+                expr = std::make_shared<IndexExpr>(expr, index);
+            } else {
+                break;
+            }
         }
         return expr;
     }
@@ -518,10 +611,38 @@ private:
             consume(RPAREN, "Expect ')' after expression.");
             return expr;
         }
+        if (match(LBRACKET)) return parseArray();
+        if (match(LBRACE)) return parseDict();
         throw std::runtime_error("Expect expression at line " + std::to_string(peek().line));
     }
 
-    // Helpers - using basic parameter pack expansion for C++11/14 compatibility check if needed, 
+    std::shared_ptr<Expr> parseArray() {
+        std::vector<std::shared_ptr<Expr>> elements;
+        if (!check(RBRACKET)) {
+            do {
+                elements.push_back(parseExpression());
+            } while (match(COMMA));
+        }
+        consume(RBRACKET, "Expect ']' after array elements.");
+        return std::make_shared<ArrayExpr>(elements);
+    }
+
+    std::shared_ptr<Expr> parseDict() {
+        std::map<std::string, std::shared_ptr<Expr>> pairs;
+        if (!check(RBRACE)) {
+            do {
+                consume(STRING_LITERAL, "Expect string key in dict.");
+                std::string key = previous().text;
+                consume(COLON, "Expect ':' after dict key.");
+                auto value = parseExpression();
+                pairs[key] = value;
+            } while (match(COMMA));
+        }
+        consume(RBRACE, "Expect '}' after dict pairs.");
+        return std::make_shared<DictExpr>(pairs);
+    }
+
+    // Helpers - using basic parameter pack expansion for C++11/14 compatibility check if needed,
     // but simplifying to explicit overloading or list to be safe.
     // Re-implementing match to be simple and safe for C++11
     bool match(TokenType t1) {
